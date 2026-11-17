@@ -1,2 +1,2 @@
 # GYL
-努力学习Python的小白
+努力学习Python和Skill语言的小白

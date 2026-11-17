@@ -3,7 +3,7 @@
 ;; ----------------------------------------------------------------------------
 ;; Usage:
 ;;   dfIndModDir = "/path/to/src"
-;;   load(strcat(dfIndModDir "/InducotrPcell_T28_modules.il"))
+;;   load(strcat(dfIndModDir "/DifferentialInducotrPcell.il"))
 ;; Same interface as the single-file version:
 ;;   InducotrPcell(lib cell)                  ; cell + CDF
 ;;   dfSymIndBuild(lib cell Pw Ps Ra Tr)     ; build the geometry

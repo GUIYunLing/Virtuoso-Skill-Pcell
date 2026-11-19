@@ -1,6 +1,6 @@
 
    else
-      println("authority expiration,please add wechat:applepearclass")
+      println("PassBy")
 
      );if
     

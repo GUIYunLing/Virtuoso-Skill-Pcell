@@ -1,8 +1,6 @@
 # 参考文件模块化切分 · 说明
 
-把 `E:\IC\Code\Skill\Done\Pcell\Inductor\DiffAmpPcell_T28.il` 按仓库
-（[GUIYunLing/Virtuoso-Skill-Pcell](https://github.com/GUIYunLing/Virtuoso-Skill-Pcell)）
-的 `dfInd_m1..m7` 风格切成 13 个模块。
+把 国外开源的一个差分螺旋抽头电感Pcell切成 13 个模块。
 
 **参考文件未做任何修改**，仍是 1642 行 / 70966 B / CRLF。
 

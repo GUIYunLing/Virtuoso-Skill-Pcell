@@ -8,7 +8,7 @@ SKILL Pcell generator for differential inductors (dfInd) in Cadence Virtuoso. Mo
 
 
 DiffAmpPcell (Tr=7) — staged SKILL PCell scaffold
-A trimmed Cadence Virtuoso SKILL parameterized cell (PCell) for an 8-figure (figure-eight) dual-lobe multi-tap differential inductor used as a passive network in a differential PA. This repository copy is a staged reconstruction scaffold: the winding body is present, while two blocks are intentionally left empty and marked [AI-FILL-...] for guided, round-by-round completion.
+
 
 Keywords
 Cadence Virtuoso, SKILL, SKILL PCell, pcDefinePCell, CDF, cdfCreateParam, cdfSaveCDF, layout automation, parameterized cell, analog layout, differential inductor, figure-eight inductor, 8-shaped inductor, symmetric inductor, multi-tap inductor, center-tapped inductor, tapped inductor, on-chip inductor, RF passive, passive network, differential PA passive, differential amplifier load, balun-like layout, transformer-like winding, TSMC 28nm, tsmcN28, M3, M4, M5, VIA3, VIA4, VIA5, metal stack, dbCreatePath, dbCreatePathSeg, dbCreatePolygon, dbLayerOr, dbCopyFig, dbPointArrayAnd, dbCreateViaShapeArray, dbCreatePin, dbCreateLabel, dbCreateNet, bbox anchor, snap grid, 45-degree routing, winding geometry, turns Tr=7, path width Pw, path space Ps, aspect ratio Ra.
@@ -21,11 +21,6 @@ Tr=7 winding only: k = 0..6, even k on M4, odd k on M3, with separate outer (k=0
 VIA4 winding taps and VIA5 / DI-region via calls, kept in their original call order including the reverse-order duplicate pairs.
 What is intentionally missing
 Two regions are replaced by markers:
-
-Marker	Region
-[AI-FILL-R8-ROUTE-BEGIN] .. [AI-FILL-R8-ROUTE-END]	Metal routing: vertical route paths, horizontal route paths, 45-degree transitions, short-piece snapshot/delete/rebuild, differential input paths
-[AI-FILL-R10-PINS-BEGIN] .. [AI-FILL-R10-PINS-END]	Terminal block P1..P10: labels, pin rectangles, nets, pins
-Downstream code still references the routing point lists, so the missing block must be restored before the file can be evaluated.
 
 Variables
 Long original names were shortened for review readability, for example OutsideMainPath1 → out0, InsideMainPath1 → in6, MainPath1 → mid4, MainPath2 → mid3, PointList1/2 → m4pts/m3pts, PointListMirror1/2 → m4mpts/m3mpts. Restore the original names mechanically before comparing against any reference implementation.

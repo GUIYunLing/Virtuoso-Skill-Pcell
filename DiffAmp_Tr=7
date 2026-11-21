@@ -15,9 +15,7 @@ PcDefine 内 8 个几何阶段的求值顺序；
 坐标契约：全程绝对坐标、近侧 25..88、远侧为 300-x 的像、轴在 150；
 层与宽度矩阵；
 对象生命周期：先建、再布尔合并、再回读 points/bBox、合并成功后才删临时件，且框一律取实际图形而非中心线推算。
-;; DiffAmpPcell Tr=7 only - AI-ready structural version
-;; Debug annotations, unused helper, and dead authorization gate removed.
-;; Geometry and routing logic are otherwise retained from DiffAmpPcell_Tr7_only.il
+
 
 procedure(DiffAmpPcell(lib cell)
   let(()

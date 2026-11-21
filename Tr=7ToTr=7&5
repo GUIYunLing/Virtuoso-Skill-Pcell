@@ -1,1 +1,108 @@
-For
+Rule of thumb: Tr=5 is the same structure with the two outermost rings removed — not a truncated copy of Tr=7 code.
+
+0. Ground rules
+Do not copy an existing Tr=5 implementation. Derive it.
+Analyse first, output a plan, get confirmation, then edit files.
+Never overwrite the input file. Write to a new file.
+Keep the shared routing tail in exactly one place.
+1. Derive the ring model (analysis only, no edits)
+Let P = Pw + Ps. For every geometry block, express its Y offset as k * P.
+
+Output a table:
+
+k	role	layer	structure	mirror
+0	outer end	M4	single grad	MY
+1,3,5	M3 middle	M3	double grad	R180
+2,4	M4 middle	M4	double grad	R180
+6	inner end	M4	single grad	MY
+Confirm three facts from the code itself:
+
+k runs 0..6 → number of rings equals Tr.
+Even k → M4, odd k → M3.
+k=6 is the fixed anchor — the inner end always uses (Pw+Ps)*6, in every turn-count variant. The outer end moves instead.
+General form:
+
+代码块
+
+
+kStart = 7 - Tr
+Tr=7 -> k = 0..6      (4x M4, 3x M3)
+Tr=5 -> k = 2..6      (3x M4, 2x M3)
+2. Derive the Tr=5 node table
+k	role	near side	mirror side
+2	outer end (re-generated!)	out0	out0m
+3	M3 middle	m3pts[0]	m3mpts[0]
+4	M4 middle	m4pts[0]	m4mpts[0]
+5	M3 middle	m3pts[1]	m3mpts[1]
+6	inner end (unchanged)	in6	in6m
+Consequences:
+
+m4pts length = 1, m3pts length = 2.
+k=2 must be re-drawn as the outer-end structure (single-side grad + MY). It is not a normal middle ring any more.
+k=6 stays (Pw+Ps)*6. Never rename it or shrink it.
+Loop mapping (pick one, state which):
+
+代码块
+
+
+A) for(a 1 1)  with PathCircleSpace1 = P*(a+1)*2   -> k=4
+   for(b 1 2)  with PathCircleSpace2 = P*b*2       -> k=3, 5
+B) for(a 0 0)  with coefficient P*(a+1)*4          -> k=4
+   for(b 0 1)  plus an extra +2P offset in the body -> k=3, 5
+3. Derive the VIA4 graph
+Abstract every VIA call to a node pair: near side N_k, mirror side M_k.
+
+For Tr=7 you must get:
+
+代码块
+
+
+7 rings -> 12 unique adjacent-pair edges
+7 duplicate edges (x2) + 5 single edges (x1) = 19 calls
+To build Tr=5: delete every edge that touches k=0 or k=1.
+
+代码块
+
+
+deleted: 6 calls  ->  remaining: 19 - 6 = 13 calls, 8 unique edges
+Critical rule — inherit, do not reinvent:
+
+Each surviving edge keeps its original multiplicity and its original direction (l1/l2 order), exactly as it appeared in Tr=7.
+
+Do not "symmetrise" an edge into forward + reverse. Do not dedupe. If an edge was called twice in the same direction, call it twice in the same direction.
+
+4. Write the code
+Add CDF param Tr (int, default 7) and PCell param (Tr int 7).
+In the callback: clamp turns first, then dispatch — out-of-range values must be corrected before case, and the local turns must be updated too, otherwise the wrong parameter set is applied.
+case(Tr ...) with branches (7), (5), and (6) -> error("Tr must be odd number!!").
+Both branches must define the same set of tail anchors: out0 / out0m / in6 / in6m and their PointList variables.
+Shared tail once: Vertical*, Horizontal*, DiffInput*, VIA3/VIA5, P1–P10.
+No debug prints, no time/authorization gate, no Tr=3 branch.
+5. Self-check (report every line)
+Check	Expected
+Tr=7 VIA4 calls	19
+Tr=5 VIA4 calls	13
+Tr=5 m4pts / m3pts length	1 / 2
+Tr=5 in6 offset	still (Pw+Ps)*6
+nth(...) out of range	none
+Shared tail definitions	exactly 1 each
+dbCreatePin / dbCreateNet	10 / 10
+Unbound variables	none
+Parenthesis balance	0
+5b. If a reference implementation exists, diff against it at the end. Normalise variable names and whitespace first. Compare:
+
+executable lines (debug comments excluded)
+VIA calls as (ordered l1/l2 pair, count) multisets — not just as an unordered set, and not just as a total count.
+A matching total with a different multiplicity distribution is still a mismatch.
+
+6. Pitfalls that actually cost time
+#	Wrong	Right
+1	Tr=5 keeps k=0..4, inner end becomes 4P / renamed in4	Tr=5 keeps k=2..6, inner end stays 6P
+2	Reuse Tr=7 nth() indices directly	List length shrank → rebuild indices from the k mapping
+3	Swap m4pts / m4mpts, or m3pts / m3mpts	k fixes the side, not just the ring number
+4	Treat k=2 as a normal middle ring	k=2 becomes the outer end → single-side grad + MY
+5	Symmetrise duplicated VIA edges into forward+reverse	Keep the original same-direction repeat count
+6	Clamp Tr after case	Clamp before, and update the local variable
+7	Rely on call counts alone to prove equivalence	Counts are necessary, not sufficient — diff the pairs
+7. One-line summary
+Find the ring index k, anchor at k=6, drop the outer rings for lower Tr, remap indices by k (never by position), and inherit each VIA edge's multiplicity and direction verbatim.

@@ -1,0 +1,575 @@
+参数与重生成行为；
+CDF 回调如何在建几何之前钳制 Pw/Ps、按 14*Pw+13*Ps 等比缩放、抬高 Ra 下限；
+对称性：近侧生成、远侧用 MY/R180 关于 x=150 复制；
+拓扑：每圈开口四点 C 形中心线、锥形 stub、窄直段、45° 拐角加短尾；
+偶数圈 M4 / 奇数圈 M3，两族在交叠处不同层穿越；
+端圈不对称特例（一臂全宽、另一侧才有完整尾）；
+引出：M5 纵向、M4/M3 横向、45° 转接、先短件后长轨；
+底部两路差分输入；
+过孔阵列的作用与配对顺序（含逆序重复）；
+十个端子的分布。
+## Structure — 描述代码怎么组织：
+
+调用层级图：DiffAmpPcell → PcDefine / PcellCdf → CallBack；
+PcDefine 内 8 个几何阶段的求值顺序；
+坐标契约：全程绝对坐标、近侧 25..88、远侧为 300-x 的像、轴在 150；
+层与宽度矩阵；
+对象生命周期：先建、再布尔合并、再回读 points/bBox、合并成功后才删临时件，且框一律取实际图形而非中心线推算。
+;; DiffAmpPcell Tr=7 only - AI-ready structural version
+;; Debug annotations, unused helper, and dead authorization gate removed.
+;; Geometry and routing logic are otherwise retained from DiffAmpPcell_Tr7_only.il
+
+procedure(DiffAmpPcell(lib cell)
+  let(()
+  PcDefine(lib cell)
+  PcellCdf(lib cell)
+      )
+)
+procedure(PcellCdf(lib cell)
+  let((cellId cdfId)
+    unless(cellId = ddGetObj(lib cell)
+      error("Could not get cell %s." cell)
+    )
+    when(cdfId = cdfGetBaseCellCDF(cellId)
+      cdfDeleteCDF(cdfId)
+    )
+    cdfId = cdfCreateBaseCellCDF(cellId)
+       cdfCreateParam(cdfId
+      ?name    "Pw"
+      ?prompt  "PathWidth(um)"
+      ?type    "float"
+      ?defValue 4.0
+      ?callback "CallBack()"
+    )
+    cdfCreateParam(cdfId
+      ?name    "Ps"
+      ?prompt  "PathSpace(um)"
+      ?type    "float"
+      ?defValue 1.0
+      ?callback "CallBack()"
+    )
+    cdfCreateParam(cdfId
+      ?name    "Ra"
+      ?prompt  "Aspect_Ratio"
+      ?type    "float"
+      ?defValue 1.0
+      ?callback "CallBack()"
+    )
+    cdfSaveCDF(cdfId)
+  )
+)
+procedure(CallBack()
+  let((width space ratio _minPw _maxPw _minPs _maxPs Pw_in Ps_in Pw Ps scale)
+    width = cdfgData~>Pw~>value
+    space = cdfgData~>Ps~>value
+    ratio = cdfgData~>Ra~>value
+        if(100 * ratio <= (width + space) * 13 + 5.0 then
+          cdfgData~>Ra~>value = int((width + space) * 13.0 + 5.0) / 100.0
+          warn("Aspect Ratio must be no less than (PathWidth+PathSpace)*13+5.0")
+        )
+    _minPw = 2.5
+    _maxPw = 4.8
+    _minPs = 1.2
+    _maxPs = 3.5
+Pw_in = cdfgData~>Pw~>value
+Ps_in = cdfgData~>Ps~>value
+Pw = max(_minPw, min(_maxPw, Pw_in))
+Ps = max(_minPs, min(_maxPs, Ps_in))
+if( 14.0*Pw + 13.0*Ps > 75.0 then
+    scale = 75.0 / (14.0*Pw + 13.0*Ps)
+    Pw = Pw * scale
+    Ps = Ps * scale
+    Pw = round( max(_minPw, min(_maxPw, Pw)) * 100.0 ) / 100.0
+    Ps = round( max(_minPs, min(_maxPs, Ps)) * 100.0 ) / 100.0
+    warn("Pw and Ps adjusted to satisfy 14*Pw+13*Ps <= 80 (now Pw=%f, Ps=%f)" Pw Ps)
+)
+cdfgData~>Pw~>value = Pw
+cdfgData~>Ps~>value = Ps
+  )
+)
+procedure(PcDefine(lib cell)
+    let(()
+        PcellId=pcDefinePCell(list(ddGetObj(lib) cell "layout")
+            (
+                (Pw float 4.0)
+                (Ps float 1.0)
+                (Ra float 1.0)
+            )
+        let((cv tfId snapGrid temp diagPathWidth out0p1 out0p2 out0p3 out0p4
+            out0 out0x out0pts p1 p2 out0top out0bot grad1
+            tail1 tail1last tail1diag out0m out0mx out0mpts
+            in6p1 in6p2 in6p3 in6p4 in6x
+            in6 in6pts in6m in6mpts in6bot in6top
+            sp1 mid4p1 mid4p2 mid4p3 mid4p4 mid4 mid4x mid4top mid4bot sp2
+            mid3 mid3x mid3m m3mpts mid3p1 mid3p2 mid3p3 mid3p4 mid3top
+            mid3bot grad2 tail2 tail2diag tail2last l1 l2 m3pts ov)
+            cv=pcCellView
+            tfId=techGetTechFile(ddGetObj("tsmcN28"))
+            snapGrid=techGetMfgGridResolution(tfId)
+        temp=(Pw-2.5)*0.5
+        diagPathWidth=ceiling(2.5*sqrt(2)/(snapGrid*2)*(snapGrid*2))
+                out0p1=68.0:50*Ra-Pw*0.5
+                out0p2=25.0+Pw*0.5:50*Ra-Pw*0.5
+                out0p3=25.0+Pw*0.5:-50*Ra+Pw*0.5
+                out0p4=75.0-(Pw+Ps)*0.5:-50*Ra+Pw*0.5
+                out0=dbCreatePath(cv "M4"
+                list(out0p1 out0p2 out0p3 out0p4)
+                Pw)
+                p1=68.0+temp:50*Ra-temp
+                p2=68.0+temp:50*Ra-temp-2.5
+                out0top=68.0:50*Ra
+                out0bot=68.0:50*Ra-Pw
+                grad1=dbCreatePolygon(cv "M4"
+                list(out0top p1 p2 out0bot))
+                tail1=dbCreatePath(cv "M4"
+                    list(68.0+temp:50*Ra-Pw*0.5
+                    75.0-(Pw+Ps)*0.5:50*Ra-Pw*0.5)
+                    2.5)
+                out0x=car(dbLayerOr(cv "M4" list(tail1 grad1 out0)))
+                dbDeleteObject(tail1 grad1 out0)
+                out0=out0x
+                out0pts=out0~>points
+                tail1=dbCreatePath(cv "M4"
+                    list(68.0+temp:50*Ra-Pw*0.5
+                    75.0-(Pw+Ps)*0.5:50*Ra-Pw*0.5)
+                    2.5)
+                tail1diag=dbCreatePathSeg(cv "M4"
+                    75.0-(Pw+Ps)*0.5:50*Ra-Pw*0.5
+                    75.0+(Pw+Ps)*0.5:50*Ra-Pw*0.5-Pw-Ps
+                    diagPathWidth "custom" "custom"
+                    list(diagPathWidth*0.5 diagPathWidth*0.5
+                    list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+                tail1last=dbCreatePath(cv "M4"
+                    list(75.0+(Pw+Ps)*0.5:50*Ra-Pw*0.5-Pw-Ps
+                    88.0:50*Ra-Pw*0.5-Pw-Ps)
+                    2.5)
+                out0mx=car(dbLayerOr(cv "M4"
+                    list(tail1 tail1diag tail1last out0)))
+                out0m=dbCopyFig(out0mx cv list(150:0 "MY"))
+                dbDeleteObject(tail1 tail1diag tail1last out0mx)
+                out0mpts=out0m~>points
+                in6p1=75.0-(Pw+Ps)*0.5:50*Ra-(Pw+Ps)*6-Pw*0.5
+                in6p2=25+(Pw+Ps)*6+Pw*0.5:50*Ra-(Pw+Ps)*6-Pw*0.5
+                in6p3=25+(Pw+Ps)*6+Pw*0.5:-50*Ra+(Pw+Ps)*6+Pw*0.5
+                in6p4=68.0:-50*Ra+(Pw+Ps)*6+Pw*0.5
+                in6=dbCreatePath(cv "M4"
+                list(in6p1 in6p2 in6p3 in6p4)
+                 Pw)
+                in6bot=68.0:-50*Ra+(Pw+Ps)*6
+                in6top=68.0:-50*Ra+(Pw+Ps)*6+Pw
+                p1=68.0+temp:-50*Ra+(Pw+Ps)*6+temp
+                p2=68.0+temp:-50*Ra+(Pw+Ps)*6+temp+2.5
+                grad1=dbCreatePolygon(cv "M4" list(in6bot p1 p2 in6top))
+                tail1=dbCreatePath(cv "M4"
+                    list(68.0+temp:-50*Ra+(Pw+Ps)*6+Pw*0.5
+                    75.0-(Pw+Ps)*0.5:-50*Ra+(Pw+Ps)*6+Pw*0.5)
+                    2.5)
+                in6x=car(dbLayerOr(cv "M4" list(tail1 grad1 in6)))
+                dbDeleteObject(tail1 grad1 in6)
+                in6=in6x
+                in6m=dbCopyFig(in6 cv list(150:0 "MY"))
+                in6mpts=in6m~>points
+                tail1=dbCreatePath(cv "M4"
+                    list(68.0+temp:-50*Ra+(Pw+Ps)*6+Pw*0.5
+                    75.0-(Pw+Ps)*0.5:-50*Ra+(Pw+Ps)*6+Pw*0.5)
+                    2.5)
+                tail1diag=dbCreatePathSeg(cv "M4"
+                    75.0-(Pw+Ps)*0.5:-50*Ra+(Pw+Ps)*6+Pw*0.5
+                    75.0+(Pw+Ps)*0.5:-50*Ra+(Pw+Ps)*5+Pw*0.5
+                    diagPathWidth "custom" "custom"
+                    list(diagPathWidth*0.5 diagPathWidth*0.5
+                    list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+                tail1last=dbCreatePath(cv "M4"
+                    list(75.0+(Pw+Ps)*0.5:-50*Ra+(Pw+Ps)*5+Pw*0.5
+                    88.0:-50*Ra+(Pw+Ps)*5+Pw*0.5)
+                    2.5)
+                in6x=car(dbLayerOr(cv "M4"
+                    list(tail1 tail1diag grad1 tail1 tail1last in6)))
+                dbDeleteObject(tail1 tail1diag tail1last in6)
+                in6=in6x
+                in6pts=in6~>points
+  m4pts=list()
+m4mpts=list()
+for(a 0 1
+    PathCircleSpace1=(Pw+Ps)*(a+1)*2
+    mid4p1=68.0:50*Ra-PathCircleSpace1-Pw*0.5
+    mid4p2=25+PathCircleSpace1+Pw*0.5:50*Ra-PathCircleSpace1-Pw*0.5
+    mid4p3=25+PathCircleSpace1+Pw*0.5:-50*Ra+PathCircleSpace1+Pw*0.5
+    mid4p4=68.0:-50*Ra+PathCircleSpace1+Pw*0.5
+    mid4=dbCreatePath(cv "M4"
+        list(mid4p1 mid4p2 mid4p3 mid4p4)
+        Pw)
+    mid4top=68.0:50*Ra-PathCircleSpace1
+    mid4bot=68.0:50*Ra-PathCircleSpace1-Pw
+    p1=68.0+temp:50*Ra-PathCircleSpace1-temp
+    p2=68.0+temp:50*Ra-PathCircleSpace1-temp-2.5
+    grad1=dbCreatePolygon(cv "M4"
+        list(mid4top p1 p2 mid4bot))
+    tail1=dbCreatePath(cv "M4"
+        list(68.0+temp:50*Ra-PathCircleSpace1-Pw*0.5
+        75.0-(Pw+Ps)*0.5:50*Ra-PathCircleSpace1-Pw*0.5)
+        2.5)
+    mid4x=car(dbLayerOr(cv "M4" list(grad1 tail1 mid4)))
+    dbDeleteObject(grad1 tail1 mid4)
+    mid4=mid4x
+    mid4bot=68.0:-50*Ra+PathCircleSpace1
+    mid4top=68.0:-50*Ra+PathCircleSpace1+Pw
+    p1=68.0+temp:-50*Ra+PathCircleSpace1+temp
+    p2=68.0+temp:-50*Ra+PathCircleSpace1+temp+2.5
+    grad1=dbCreatePolygon(cv "M4" list(mid4bot p1 p2 mid4top))
+    tail1=dbCreatePath(cv "M4"
+        list(68.0+temp:-50*Ra+PathCircleSpace1+Pw*0.5
+        75.0-(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5)
+        2.5)
+    MainPath1Basic=car(dbLayerOr(cv "M4" list(grad1 tail1 mid4)))
+    dbDeleteObject(grad1 tail1 mid4)
+    tail1diag=dbCreatePathSeg(cv "M4"
+        75.0-(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5
+        75.0+(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5+Pw+Ps
+        diagPathWidth "custom" "custom"
+        list(diagPathWidth*0.5 diagPathWidth*0.5
+        list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+    tail1last=dbCreatePath(cv "M4"
+        list(74.5+(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5+Pw+Ps
+        88.0:-50*Ra+PathCircleSpace1+Pw*0.5+Pw+Ps)
+        2.5)
+    tmp=car(dbLayerOr(cv "M4" list(tail1diag tail1last MainPath1Basic)))
+    MainPathMirror1=dbCopyFig(tmp cv list(150:0 "R180"))
+    dbDeleteObject(tail1diag tail1last tmp)
+    m4mpts=append(m4mpts list(MainPathMirror1~>points))
+    tail1diag=dbCreatePathSeg(cv "M4"
+        75.0-(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5
+        75.0+(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5-Pw-Ps
+        diagPathWidth "custom" "custom"
+        list(diagPathWidth*0.5 diagPathWidth*0.5
+        list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+    tail1last=dbCreatePath(cv "M4"
+        list(74.5+(Pw+Ps)*0.5:-50*Ra+PathCircleSpace1+Pw*0.5-Pw-Ps
+        88.0:-50*Ra+PathCircleSpace1+Pw*0.5-Pw-Ps)
+        2.5)
+    mid4x=car(dbLayerOr(cv "M4" list(tail1diag tail1last MainPath1Basic)))
+    dbDeleteObject(tail1diag tail1last MainPath1Basic)
+       mid4=mid4x
+       m4pts=append(m4pts list(mid4~>points))
+     )
+m3pts=list()
+m3mpts=list()
+for(b 0 2
+     PathCircleSpace2=(Pw+Ps)*b*2
+    mid3p1=68.0:50*Ra-Pw-Ps-Pw*0.5-PathCircleSpace2
+    mid3p2=25+Pw+Ps+PathCircleSpace2+Pw*0.5:50*Ra-Pw-Ps-Pw*0.5-PathCircleSpace2
+    mid3p3=25+Pw+Ps+PathCircleSpace2+Pw*0.5:-50*Ra+Pw+Ps+Pw*0.5+PathCircleSpace2
+    mid3p4=68.0:-50*Ra+Pw+Ps+Pw*0.5+PathCircleSpace2
+    mid3=dbCreatePath(cv "M3"
+        list(mid3p1 mid3p2 mid3p3 mid3p4)
+        Pw)
+    p1=68.0+temp:50*Ra-Pw-Ps-temp-PathCircleSpace2
+    p2=68.0+temp:50*Ra-Pw-Ps-temp-2.5-PathCircleSpace2
+    mid3top=68.0:50*Ra-Pw-Ps-PathCircleSpace2
+    mid3bot=68.0:50*Ra-Pw-Ps-Pw-PathCircleSpace2
+    grad2=dbCreatePolygon(cv "M3" list(mid3top p1 p2 mid3bot))
+    tail2=dbCreatePath(cv "M3"
+        list(68.0+temp:50*Ra-Pw-Ps-PathCircleSpace2-Pw*0.5
+        75.0-(Pw+Ps)*0.5:50*Ra-Pw-Ps-PathCircleSpace2-Pw*0.5)
+        2.5)
+    mid3x=car(dbLayerOr(cv "M3" list(grad2 tail2 mid3)))
+    dbDeleteObject(grad2 tail2 mid3)
+    mid3=mid3x
+    mid3bot=68.0:-50*Ra+Pw+Ps+PathCircleSpace2
+    mid3top=68.0:-50*Ra+Pw+Ps+Pw+PathCircleSpace2
+    p1=68.0+temp:-50*Ra+Pw+Ps+temp+PathCircleSpace2
+    p2=68.0+temp:-50*Ra+Pw+Ps+temp+2.5+PathCircleSpace2
+    grad2=dbCreatePolygon(cv "M3" list(mid3bot p1 p2 mid3top))
+    tail2=dbCreatePath(cv "M3"
+        list(68.0+temp:-50*Ra+Pw+Ps+Pw*0.5+PathCircleSpace2
+        75.0-(Pw+Ps)*0.5:-50*Ra+Pw+Ps+Pw*0.5+PathCircleSpace2)
+        2.5)
+    tmp=car(dbLayerOr(cv "M3" list(grad2 tail2 mid3)))
+    MainPath2Basic=dbCopyFig(tmp cv list(0:0 "R0"))
+     dbDeleteObject(grad2 tail2 mid3 tmp)
+     tail2diag=dbCreatePathSeg(cv "M3"
+        75.0-(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5
+        75.0+(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5+Pw+Ps
+        diagPathWidth "custom" "custom"
+        list(diagPathWidth*0.5 diagPathWidth*0.5
+        list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+    tail2last=dbCreatePath(cv "M3"
+        list(74.5+(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5+Pw+Ps
+        88.0:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5+Pw+Ps)
+        2.5)
+      mid3=car(dbLayerOr(cv "M3" list(tail2diag tail2last MainPath2Basic)))
+    dbDeleteObject(tail2diag tail2last)
+       tail2diag=dbCreatePathSeg(cv "M3"
+        75.0-(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5
+        75.0+(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5-Pw-Ps
+        diagPathWidth "custom" "custom"
+        list(diagPathWidth*0.5 diagPathWidth*0.5
+        list(1.25 1.25 diagPathWidth*0.5 1.25 1.25 diagPathWidth*0.5)))
+        tail2last=dbCreatePath(cv "M3"
+        list(74.5+(Pw+Ps)*0.5:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5-Pw-Ps
+        88.0:-50*Ra+Pw+Ps+PathCircleSpace2+Pw*0.5-Pw-Ps)
+        2.5)
+    tmp=car(dbLayerOr(cv "M3" list(tail2diag tail2last MainPath2Basic)))
+    mid3m=dbCopyFig(tmp cv list(150:0 "R180"))
+    dbDeleteObject(tail2diag tail2last tmp MainPath2Basic)
+     m3mpts=append(m3mpts list(mid3m~>points))
+     m3pts=append(m3pts list(mid3~>points))
+      )
+l1=list(nth(0 m4pts))
+l2=list(nth(0 m3mpts))
+    ov=car(dbPointArrayAnd(cv l1 l2))
+    dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m4pts))
+l2=list(nth(1 m3mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(out0pts)
+l2=list(nth(0 m3mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m4mpts))
+l2=list(nth(1 m3pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m3pts))
+l2=list(nth(0 m4mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m3pts))
+l2=list(out0mpts)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m3mpts))
+l2=list(nth(0 m4pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(0 m3mpts))
+l2=list(out0pts)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m4pts))
+l2=list(nth(1 m3mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m4pts))
+l2=list(nth(2 m3mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m4mpts))
+l2=list(nth(1 m3pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+    l1=list(nth(1 m4mpts))
+l2=list(nth(2 m3pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m3pts))
+l2=list(nth(0 m4mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m3pts))
+l2=list(nth(1 m4mpts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m3mpts))
+l2=list(nth(0 m4pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(1 m3mpts))
+l2=list(nth(1 m4pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(2 m3pts))
+l2=list(in6mpts)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(2 m3mpts))
+l2=list(nth(1 m4pts))
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+l1=list(nth(2 m3mpts))
+l2=list(in6pts)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(car(ov))+0.75
+    yCoord(car(ov))+0.5 3.0 3.0 1.5 1.5 1 3)
+;; ============================================================================
+;; [AI-FILL-R8-ROUTE-BEGIN]
+;; Tr=7 route block intentionally staged for two-round reconstruction.
+;; Restore V1/V2/V3, HP1/HP2/HP3/HP4/HP5 and DI1/DI2 here.
+;; Preserve real bBox/points anchors, V2=225.5, routeDiagW vs displacement,
+;; short-piece snapshot/delete/rebuild lifecycle, and downstream PointList names.
+;; [AI-FILL-R8-ROUTE-END]
+l1=list(in6pts)
+l2=list(VerticalPath1PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(car(ov))+2.0
+yCoord(car(ov))+(Pw-2.0)/2.0  4.0 4.0 2.0 2.0 1 2)
+l1=list(HorizontalPath1PointList)
+l2=list(VerticalPath1PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv)
+    xCoord(cadr(out0~>bBox))-3.5 yCoord(cadr(out0~>bBox))+6.0+1.5
+    4.0 4.0 2.0 2.0 2 1)
+l1=list(in6mpts)
+l2=list(VerticalPath2PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(car(ov))+2.0
+    yCoord(car(ov))+(Pw-2.0)/2.0   4.0 4.0 2.0 2.0 1 2)
+l1=list(HorizontalPath2PointList)
+l2=list(VerticalPath2PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(cadr(ov))+2.0
+    yCoord(cadr(out0~>bBox))+20.0+Pw*0.5+10+Pw*0.5*2-1.0
+    4.0 4.0 2.0 2.0 1 2)
+dbCreatePolygon(cv "M4"
+    list(xCoord(car(in6m~>bBox)):yCoord(cadr(out0~>bBox))+30.0+Pw
+    xCoord(car(in6m~>bBox))+10.0:yCoord(cadr(out0~>bBox))+30.0+Pw
+    xCoord(car(in6m~>bBox))+10.0:yCoord(cadr(out0~>bBox))+30.0+Pw*2.0
+    xCoord(car(in6m~>bBox)):yCoord(cadr(out0~>bBox))+30.0+Pw*2.0))
+l1=list(HorizontalPath1PointList)
+l2=list(HorizontalPath3PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateRect(cv "M3"
+    list(xCoord(cadr(HorizontalPath3~>bBox))-10.0:yCoord(car(HorizontalPath3~>bBox))
+    xCoord(cadr(HorizontalPath3~>bBox)):yCoord(car(HorizontalPath3~>bBox))+Pw))
+dbCreateRect(cv "M5"
+    list(xCoord(cadr(HorizontalPath3~>bBox))-10.0:yCoord(car(HorizontalPath3~>bBox))+Pw*0.5-2.5
+    xCoord(cadr(HorizontalPath3~>bBox)):yCoord(car(HorizontalPath3~>bBox))+Pw*0.5+2.5))
+dbCreateViaShapeArray(cv "VIA3" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.75
+    yCoord(car(ov))+(Pw-1.5)*0.5 3.0 3.0 1.5 1.5 1 3)
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.75
+    yCoord(car(ov))+(Pw-1.5)*0.5 3.0 3.0 1.5 1.5 1 3)
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.0
+    yCoord(car(ov))+(Pw-2.0)*0.5 4.0 4.0 2.0 2.0 1 2)
+l1=list(HorizontalPath2PointList)
+l2=list(HorizontalPath4PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateRect(cv "M3"
+    list(xCoord(cadr(HorizontalPath4~>bBox))-10.0:yCoord(car(HorizontalPath4~>bBox))
+    xCoord(cadr(HorizontalPath4~>bBox)):yCoord(car(HorizontalPath4~>bBox))+Pw))
+dbCreateRect(cv "M5"
+    list(xCoord(cadr(HorizontalPath4~>bBox))-10.0:yCoord(car(HorizontalPath4~>bBox))+Pw*0.5-2.5
+    xCoord(cadr(HorizontalPath4~>bBox)):yCoord(car(HorizontalPath4~>bBox))+Pw*0.5+2.5))
+dbCreateViaShapeArray(cv "VIA3" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.75
+    yCoord(car(ov))+(Pw-1.5)*0.5 3.0 3.0 1.5 1.5 1 3)
+dbCreateViaShapeArray(cv "VIA4" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.75
+    yCoord(car(ov))+(Pw-1.5)*0.5 3.0 3.0 1.5 1.5 1 3)
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(cadr(HorizontalPath4~>bBox))-8.0
+    yCoord(car(ov))+(Pw-2.0)*0.5 4.0 4.0 2.0 2.0 1 2)
+    l1=list(VerticalPath3PointList)
+    l2=list(out0pts)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv)
+    xCoord(cadr(out0~>bBox))-17.0
+    yCoord(car(out0~>bBox))+(Pw-2.0)*0.5 4.0 4.0 2.0 2.0 1 4)
+l1=list(VerticalPath3PointList)
+l2=list(HorizontalPath5PointList)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv)
+    xCoord(cadr(out0~>bBox))-17.0
+    yCoord(car(out0~>bBox))-25.0-Pw*2.0+(Pw-2.0)*0.5
+    4.0 4.0 2.0 2.0 1 4)
+dbDeleteObject(HorizontalPath3 HorizontalPath4)
+HorizontalPath3=dbConvertPathToPolygon(dbCreatePath(cv "M3"
+    list(25:yCoord(cadr(out0~>bBox))+20.0+Pw*0.5
+    xCoord(cadr(out0m~>bBox))+12.0:yCoord(cadr(out0~>bBox))+20.0+Pw*0.5) Pw))
+HorizontalPath4=dbConvertPathToPolygon(dbCreatePath(cv "M3"
+    list(25:yCoord(cadr(out0~>bBox))+20.0+Pw*1.5+10
+    xCoord(cadr(out0m~>bBox))+12.0:yCoord(cadr(out0~>bBox))+20.0+Pw*1.5+10) Pw))
+group=dbCreateFigGroup(cv "fig" t 0:0 "R0")
+foreach(x cv~>shapes
+    dbAddFigToFigGroup(group x)
+)
+foreach(x cv~>via
+    dbAddFigToFigGroup(group x)
+)
+group1=dbCopyFig(group cv list(0:0 "MY"))
+dbDeleteObject(group group1)
+P1=dbCreatePath(cv "M5"
+    list(-20.0:yCoord(car(out0~>bBox))-20.0-Pw*0.5
+         0.0:yCoord(car(out0~>bBox))-20.0-Pw*0.5) 5.0)
+dbConvertPathToPolygon(dbCreatePath(cv "M4"
+    list(-20.0:yCoord(car(out0~>bBox))-20.0-Pw*0.5
+         0.0:yCoord(car(out0~>bBox))-20.0-Pw*0.5) 3.5))
+P2=dbCreatePath(cv "M5"
+    list(-10.0:yCoord(car(out0~>bBox))-20.0-Pw*0.5
+         -10.0:yCoord(car(out0~>bBox))-25.0-Pw*2.5
+         -15.0:yCoord(car(out0~>bBox))-30.0-Pw*2.5
+         -15.0:yCoord(car(out0~>bBox))-50.0-Pw*2.0) 5.0)
+DiffInputPath1=dbLayerOr(cv "M5" list(P1 P2))
+dbDeleteObject(P1 P2)
+dbCreatePath(cv "M4"
+    list(-15.0:yCoord(car(out0~>bBox))-40.0-Pw*2.0
+         -15.0:yCoord(car(out0~>bBox))-50.0-Pw*2.0) 5.0)
+l1=DiffInputPath1~>points
+l2=list(
+    list((-12.5:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+         (-17.5:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+         (-12.5:yCoord(car(out0~>bBox))-40.0)
+         (-17.5:yCoord(car(out0~>bBox))-40.0))
+)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) -16.0 yCoord(car(ov))+2.0
+    4.0 4.0 2.0 2.0 2 1)
+l1=DiffInputPath1~>points
+l2=list(
+    list((0.0:yCoord(car(out0~>bBox))-20.0)
+         (0.0:yCoord(car(out0~>bBox))-20.0-Pw)
+         (-20.0:yCoord(car(out0~>bBox))-20.0-Pw)
+         (-20.0:yCoord(car(out0~>bBox))-20.0))
+)
+ov=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv)
+    -17.0 yCoord(car(out0~>bBox))-20.0-Pw+(Pw-2.0)*0.5
+    4.0 4.0 2.0 2.0 1 4)
+P1=dbCreatePath(cv "M4"
+    list(2.5:yCoord(car(out0~>bBox))-25.0-Pw*1.5
+         2.5:yCoord(car(out0~>bBox))-25.0-Pw*2.5
+         7.5:yCoord(car(out0~>bBox))-30.0-Pw*2.5
+         7.5:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+    5.0)
+DiffInputPath2=dbLayerOr(cv "M4" list(P1 HorizontalPath5))
+dbDeleteObject(P1 HorizontalPath5)
+dbCreatePath(cv "M5"
+    list(7.5:yCoord(car(out0~>bBox))-40.0-Pw*2.0
+         7.5:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+    5.0)
+l1=DiffInputPath2~>points
+l2=list(
+    list((5.0:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+         (10.0:yCoord(car(out0~>bBox))-50.0-Pw*2.0)
+         (10.0:yCoord(car(out0~>bBox))-40.0-Pw*2.0)
+         (5.0:yCoord(car(out0~>bBox))-40.0-Pw*2.0))
+)
+OverlapArea=car(dbPointArrayAnd(cv l1 l2))
+dbCreateViaShapeArray(cv "VIA5" techGetTechFile(cv) xCoord(car(OverlapArea))+1.5 yCoord(car(OverlapArea))+2.0 4.0 4.0 2.0 2.0 2 1)
+;; ============================================================================
+;; [AI-FILL-R10-PINS-BEGIN]
+;; P1-P10 terminal block intentionally staged for reconstruction.
+;; Restore labels, rectangles, nets and pins using Tr7 defaults y3=70,
+;; y4=84, y5=-83, xR=287. Preserve layer mismatch and report electrical
+;; connectivity separately from terminal creation intent.
+;; [AI-FILL-R10-PINS-END]
+       )
+      )
+    )
+)`r`n
+

@@ -1,1 +1,179 @@
-For
+Tr=7 AI Completion SOP
+Goal
+Complete the two missing blocks of a Tr=7-only SKILL PCell:
+
+R8_ROUTE_BLOCK — Tr=7 routing, input paths, and geometry snapshots.
+R10_PINS_BLOCK — terminals P1–P10.
+Return only the two replacement code blocks. Do not rewrite the rest of the PCell.
+
+Operating rules
+Work as a pure technical derivation assistant.
+Use only the constraints in the current prompt and the explicitly supplied interfaces.
+Do not read standard-answer files, hidden files, other sessions, or other groups.
+Do not invent missing points, bBoxes, VIA pairs, or electrical connections.
+Do not implement Tr=5 or Tr=3.
+Do not claim SKILL, Virtuoso, OA, PDK, DRC, LVS, EM, or connectivity verification.
+Preserve existing variable names and downstream interfaces.
+Output static code plus a short list of assumptions and unverified items.
+Existing inputs
+Assume the caller already provides:
+
+代码块
+
+
+cv, Pw, Ps, snapGrid
+out0, out0m, in6, in6m
+out0, out0m, in6, and in6m are actual generated figures with usable ~>bBox and ~>points values.
+
+Required R8 outputs
+The route block must define:
+
+代码块
+
+
+VerticalPath1
+VerticalPath2
+VerticalPath3
+VerticalPath1PointList
+VerticalPath2PointList
+VerticalPath3PointList
+
+HorizontalPath1
+HorizontalPath2
+HorizontalPath3
+HorizontalPath4
+HorizontalPath5
+HorizontalPath1PointList
+HorizontalPath2PointList
+HorizontalPath3PointList
+HorizontalPath4PointList
+HorizontalPath5PointList
+
+DiffInputPath1
+DiffInputPath2
+Layer and width matrix
+代码块
+
+
+V1/V2/V3        M5 / 5.0
+HP1/HP2/HP5     M4 / Pw
+HP3/HP4         M3 / Pw
+DiffInputPath1  M5 / 5.0
+DiffInputPath2  M4 / 5.0
+Anchor rules
+Use actual bBox edges where available.
+
+For the V2 mirror anchor:
+
+代码块
+
+
+xDiag0 = 75 - (Pw+Ps)/2
+fullArmBBoxRight = xDiag0 + Pw/2
+v2MirrorLeft = xCoord(car(in6m~>bBox))
+For the default sample Pw=4, Ps=1:
+
+代码块
+
+
+xDiag0 = 72.5
+fullArmBBoxRight = 74.5
+v2MirrorLeft = 225.5
+fullArmBBoxRight is a default/static check, not a universal hard-coded route anchor. V1, V3, HP1, and HP5 use the actual out0~>bBox where applicable.
+
+HP1 diagonal
+Keep displacement and width separate:
+
+代码块
+
+
+routeDx = 4 + Pw/2
+routeDiagW = ceiling(Pw*sqrt(2)/(snapGrid*2)*(snapGrid*2))
+For Pw=4, both evaluate to 6, but they are different concepts.
+
+HP3/HP4 lifecycle
+Use this order:
+
+代码块
+
+
+create right-end short piece
+read and save points/bBox needed later
+delete the short piece
+rebuild the full-length rail
+Never read a deleted figure handle.
+
+HP5 / DI2 lifecycle
+Before merging DiffInputPath2 into HP5, save:
+
+代码块
+
+
+hp5OldPoints
+hp5OldBBox
+After deleting the old HP5 object, use only the saved values or the new merged object.
+
+Required R10 outputs
+Create P1–P10. Every terminal must include:
+
+代码块
+
+
+dbCreateLabel
+dbCreateRect
+dbCreateNet
+dbCreatePin
+Use these static Tr=7 checks:
+
+代码块
+
+
+y3 = 70
+y4 = 84
+y5 = -83
+xR = 287
+Terminal rules
+P1/P2: bottom M5, 5×5 rectangles, y from the pre-merge HP5 bBox (y5=-83 in the default sample).
+P3–P6: labels on M3/text, pin rectangles on M5; preserve this layer mismatch.
+P7/P8: M3 at x=-25.
+P9/P10: M3 at x=25.
+Preserve left/right label justification and the existing terminal ordering.
+Do not move negative-side terminals to make connectivity look better.
+Terminal names are not proof of independent electrical nodes.
+Output format
+Return exactly:
+
+代码块
+
+
+## R8_ROUTE_BLOCK
+<code only>
+
+## R10_PINS_BLOCK
+<code only>
+
+## Static notes
+- assumptions
+- unverified API/geometry semantics
+- no-runtime-verification statement
+Do not include:
+
+a complete rewritten PCell;
+Tr=5/3 branches;
+new VIA-pair generators;
+alias registries;
+automatic point derivation;
+fabricated intersections;
+claims of successful loading or electrical connectivity.
+Acceptance checklist
+Before returning the blocks, verify:
+
+all required R8 variables are defined;
+R8 uses dynamic bBox/points anchors where required;
+V2 uses the 225.5 default derivation without confusing bBox and path-center semantics;
+routeDx and routeDiagW are separate;
+HP3/HP4 short-piece snapshots precede deletion;
+hp5OldPoints/hp5OldBBox precede DI2 merge/deletion;
+P1–P10 each have label, rectangle, net, and pin;
+P3–P6 layer mismatch is preserved;
+no Tr=5/3 code or unsupported verification claim is introduced.
